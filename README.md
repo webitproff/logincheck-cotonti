@@ -55,7 +55,37 @@ Safe retrieval of the value using the null coalescing operator. If for some reas
 
     $username = cot_translit_encode($username);
 
-The key stage is the conversion of non-Latin characters (for example, Cyrillic) into Latin. The standard Cotonti function `cot_translit_encode()` is used, which loads a mapping array from the language file `translit.XX.lang.php`, where `XX` is the current system language. The function's operation mechanism:
+The key stage is the conversion of non-Latin characters (for example, Cyrillic) into Latin. The standard Cotonti function `cot_translit_encode()` is used, which loads a mapping array from the language file `translit.XX.lang.php`, where `XX` is the current system language. 
+
+```
+/**
+ * Transliterates a string if transliteration is available
+ *
+ * @param string $str Source string
+ * @return string
+ *
+ * @todo use intl php-extension
+ */
+function cot_translit_encode($str)
+{
+	global $lang, $cot_translit;
+	static $lang_loaded = false;
+	if (!$lang_loaded && $lang != 'en' && file_exists(cot_langfile('translit', 'core')))
+	{
+		require_once cot_langfile('translit', 'core');
+		$lang_loaded = true;
+	}
+	if (is_array($cot_translit))
+	{
+		// Apply transliteration
+		$str = strtr($str, $cot_translit);
+	}
+	return $str;
+}
+```
+
+
+The function's operation mechanism:
 
 *   Checks if the current language is not English (`$lang == 'en'`).
 *   If the language is not English and the file `translit.XX.lang.php` exists, it is included.
@@ -250,105 +280,22 @@ Below are examples of how the plugin transforms various input data into a final 
 *   Collapsing hyphens: `-`
 *   Trimming edges: empty string → error "Login must consist of Latin alphabet, digits and/or symbols \_ and -"
 
-Input Login (Original Data)
 
-Result After Plugin Processing
 
-Note and Explanation
+| Input Login (Original Data) | Result After Plugin Processing | Note and Explanation |
+|-----------------------------|-------------------------------|----------------------|
+| `Иван Петров` | `Ivan_Petrov` | Transliteration of Cyrillic to Latin: И→I, в→v, а→a, н→n, П→P, е→e, т→t, р→r, о→o, в→v. Space replaced with underscore (`_`). First character is a Latin letter, no prefix added. |
+| `Анна-Мария!!!` | `Anna-Mariya` | Transliteration: А→A, н→n, а→a, М→M, а→a, р→r, и→i, я→ya. Exclamation marks (`!!!`) replaced with hyphens → `Anna-Mariya---`. Hyphen sequence collapsed into one, trailing hyphen removed by `trim()`. |
+| `12345` | `user_12345` | Digits are not transliterated and remain unchanged. First character is not a Latin letter, so the `user_` prefix is added. Length does not exceed 32 characters. |
+| `John Doe` | `John_Doe` | Latin characters remain unchanged. All whitespace sequences (including leading and trailing) are replaced with a single underscore. Leading/trailing underscores removed by `trim($username, '-_')`. |
+| `!!!@@@###` | Error: *"Login must consist of Latin alphabet, digits and/or symbols _ and -"* | All characters are not in the allowed set `[a-zA-Z0-9_-]`, so each is replaced with a hyphen → `-------`. Hyphen collapse results in `-`. `trim()` removes the hyphen at the beginning and end, leaving an empty string. Empty string triggers a validation error. |
+| `Євгенія` (Ukrainian) | `Yevheniia` | Transliteration according to the Ukrainian table (DSTU 8583:2015): Є→Ye, в→v, г→h, е→e, н→n, і→i, я→ia. No spaces or invalid characters, first character is a Latin letter. The result fully complies with Cotonti requirements. |
+| `admin` (if present in the blacklist) | Error: *"Please specify a different login"* | The login `admin` passes all normalization steps unchanged (Latin letters, allowed symbols). However, it matches a value from the plugin's `invalidnames` setting. The blacklist check is triggered, and registration is rejected. |
+| `User_Name-2024` | `User_Name-2024` | **Example of a login that undergoes no changes.** The string consists only of Latin letters, digits, underscores, and hyphens. First character is a Latin letter. No spaces, edge separators, or invalid characters. Length is less than 32 characters, not in the blacklist. The plugin passes this login without modifications. |
+| `user with multiple___spaces---and symbols!@#` | `user_with_multiple_spaces-and-symbols` | Transliteration not required (Latin). Multiple spaces replaced with a single underscore → `user_with_multiple___spaces---and_symbols!@#`. Characters `!@#` replaced with hyphens → `user_with_multiple___spaces---and_symbols---`. Underscore and hyphen sequences collapsed: `___` → `_`, `---` → `-`. Trailing hyphens removed. Final result: `user_with_multiple_spaces-and-symbols`. |
+| `_Alice_` | `Alice` | Leading and trailing underscores removed by `trim($username, '-_')`. The remaining part complies with the rules, no further changes needed. |
+| `ОченьДлинноеИмяКотороеПревышаетТридцатьДваСимвола` | `OchenDlinnoeImyaKotoroePrevy` (exactly 32 characters) | Transliteration: О→O, ч→ch, е→e, н→n, ь→ (disappears), etc. After transliteration, length exceeds 32 characters. The `mb_substr($username, 0, 32)` function truncates the string to 32 characters. First character is a Latin letter, no prefix added. |
 
-`Иван Петров`
-
-`Ivan_Petrov`
-
-Transliteration of Cyrillic to Latin: И→I, в→v, а→a, н→n, П→P, е→e, т→t, р→r, о→o, в→v.  
-Space replaced with underscore (`_`).  
-First character is a Latin letter, no prefix added.
-
-`Анна-Мария!!!`
-
-`Anna-Mariya`
-
-Transliteration: А→A, н→n, а→a, М→M, а→a, р→r, и→i, я→ya.  
-Exclamation marks (`!!!`) replaced with hyphens → `Anna-Mariya---`.  
-Hyphen sequence collapsed into one, trailing hyphen removed by `trim()`.
-
-`12345`
-
-`user_12345`
-
-Digits are not transliterated and remain unchanged.  
-First character is not a Latin letter, so the `user_` prefix is added.  
-Length does not exceed 32 characters.
-
-`John Doe`
-
-`John_Doe`
-
-Latin characters remain unchanged.  
-All whitespace sequences (including leading and trailing) are replaced with a single underscore.  
-Leading/trailing underscores removed by `trim($username, '-_')`.
-
-`!!!@@@###`
-
-Error: _"Login must consist of Latin alphabet, digits and/or symbols \_ and -"_
-
-All characters are not in the allowed set `[a-zA-Z0-9_-]`, so each is replaced with a hyphen → `-------`.  
-Hyphen collapse results in `-`.  
-`trim()` removes the hyphen at the beginning and end, leaving an empty string.  
-Empty string triggers a validation error.
-
-`Євгенія` (Ukrainian)
-
-`Yevheniia`
-
-Transliteration according to the Ukrainian table (DSTU 8583:2015): Є→Ye, в→v, г→h, е→e, н→n, і→i, я→ia.  
-No spaces or invalid characters, first character is a Latin letter.  
-The result fully complies with Cotonti requirements.
-
-`admin` (if present in the blacklist)
-
-Error: _"Please specify a different login"_
-
-The login `admin` passes all normalization steps unchanged (Latin letters, allowed symbols).  
-However, it matches a value from the plugin's `invalidnames` setting.  
-The blacklist check is triggered, and registration is rejected.
-
-`User_Name-2024`
-
-`User_Name-2024`
-
-**Example of a login that undergoes no changes.**  
-The string consists only of Latin letters, digits, underscores, and hyphens.  
-First character is a Latin letter.  
-No spaces, edge separators, or invalid characters.  
-Length is less than 32 characters, not in the blacklist.  
-The plugin passes this login without modifications.
-
-`user with multiple___spaces---and symbols!@#`
-
-`user_with_multiple_spaces-and-symbols`
-
-Transliteration not required (Latin).  
-Multiple spaces replaced with a single underscore → `user_with_multiple___spaces---and_symbols!@#`.  
-Characters `!@#` replaced with hyphens → `user_with_multiple___spaces---and_symbols---`.  
-Underscore and hyphen sequences collapsed: `___` → `_`, `---` → `-`.  
-Trailing hyphens removed. Final result: `user_with_multiple_spaces-and-symbols`.
-
-`_Alice_`
-
-`Alice`
-
-Leading and trailing underscores removed by `trim($username, '-_')`.  
-The remaining part complies with the rules, no further changes needed.
-
-`ОченьДлинноеИмяКотороеПревышаетТридцатьДваСимвола`
-
-`OchenDlinnoeImyaKotoroePrevy` (exactly 32 characters)
-
-Transliteration: О→O, ч→ch, е→e, н→n, ь→ (disappears), etc.  
-After transliteration, length exceeds 32 characters.  
-The `mb_substr($username, 0, 32)` function truncates the string to 32 characters.  
-First character is a Latin letter, no prefix added.
 
 #### Example 6. Blacklist Match
 
