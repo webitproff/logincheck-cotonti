@@ -3,7 +3,7 @@
 [BEGIN_COT_EXT]
 Code=logincheck
 Name=Logincheck
-Category=registration
+Category=security-authentication
 Description=
 Version=2.7.8
 Date=Apr 25Th, 2026
